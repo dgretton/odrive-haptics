@@ -55,9 +55,12 @@ if '--ratio' in sys.argv:
 
 sim_velocity = '--velocity' in sys.argv
 
+bias = 0
+if '--bias' in sys.argv:
+    bias = float(sys.argv[sys.argv.index('--bias') + 1])
 
 def config_axis(axis):
-    axis.controller.config.vel_limit = 20 # turns per second
+    axis.controller.config.vel_limit = 5 # turns per second
     axis.controller.config.vel_limit_tolerance = 5 # 500%
     axis.motor.config.current_lim = min_current # amp
     axis.motor.config.current_lim_margin = 30 # amp (allow fast input movement)
@@ -91,6 +94,10 @@ try:
             pos1 += dtime * vel1 * .8
         axis0_set = pos1*ratio
         axis1_set = pos0/ratio
+        if -bias * axis0_set > 0: # don't allow bias to rotate past the start position
+            axis0_set += bias
+        if -bias * axis1_set > 0: # these account for positive or negative bias
+            axis1_set += bias
         odrv0.axis0.controller.input_pos = axis0_set
         odrv0.axis1.controller.input_pos = axis1_set
         def current_func(err):
