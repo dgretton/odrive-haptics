@@ -1,6 +1,7 @@
 import odrive
 import time
 import sys
+from sync import syncData
 
 start_time = time.time()
 time_now = start_time
@@ -35,6 +36,11 @@ hard_spring = '--hard-spring' in sys.argv
 spring_k = 100 if hard_spring else 2
 overall_current_lim = 20 if hard_spring else 3
 min_current = .5 if hard_spring else .85
+
+limit = 1.0
+if '--limit' in sys.argv:
+    limit_str = sys.argv[sys.argv.index('--limit') + 1]
+    limit = abs(float(limit_str))
 
 ratio = 1.0
 if '--ratio' in sys.argv:
@@ -78,6 +84,7 @@ try:
     one_iter_done = False
     now_time = time.time()
 
+    i_count = 0
     while True:
         if sim_velocity and one_iter_done:
             old_pos0 = pos0
@@ -94,10 +101,16 @@ try:
             pos1 += dtime * vel1 * .8
         axis0_set = pos1*ratio
         axis1_set = pos0/ratio
+        #i_count += 1
+        #if i_count % 1000 == 0:
+        #    syncData(axis0_set)
+        #    syncData(axis1_set)
         if -bias * axis0_set > 0: # don't allow bias to rotate past the start position
             axis0_set += bias
         if -bias * axis1_set > 0: # these account for positive or negative bias
             axis1_set += bias
+        axis0_set = max(min(axis0_set, limit), -limit)
+        axis1_set = max(min(axis1_set, limit), -limit)
         odrv0.axis0.controller.input_pos = axis0_set
         odrv0.axis1.controller.input_pos = axis1_set
         def current_func(err):
