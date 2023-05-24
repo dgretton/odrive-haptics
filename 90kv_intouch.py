@@ -1,7 +1,6 @@
 import odrive
 import time
 import sys
-from sync import syncData
 
 start_time = time.time()
 time_now = start_time
@@ -35,7 +34,7 @@ if force_calibrate:
 hard_spring = '--hard-spring' in sys.argv
 spring_k = 100 if hard_spring else 2
 overall_current_lim = 20 if hard_spring else 3
-min_current = .5 if hard_spring else .85
+min_current = 5#TODO: REMOVE!!.5 if hard_spring else .15
 
 limit = 1.0
 if '--limit' in sys.argv:
@@ -65,6 +64,10 @@ bias = 0
 if '--bias' in sys.argv:
     bias = float(sys.argv[sys.argv.index('--bias') + 1])
 
+remote = '--remote' in sys.argv
+if remote:
+    from sync import AveragingServer
+
 def config_axis(axis):
     axis.controller.config.vel_limit = 5 # turns per second
     axis.controller.config.vel_limit_tolerance = 5 # 500%
@@ -75,6 +78,8 @@ def config_axis(axis):
 config_axis(odrv0.axis0)
 config_axis(odrv0.axis1)
 
+if remote:
+    avg_server = AveragingServer(2)
 try:
     odrv0.axis0.requested_state = 8 # AXIS_STATE_CLOSED_LOOP_CONTROL
     odrv0.axis1.requested_state = 8 # AXIS_STATE_CLOSED_LOOP_CONTROL
@@ -84,7 +89,8 @@ try:
     one_iter_done = False
     now_time = time.time()
 
-    i_count = 0
+    if remote:
+        avg_server.start()
     while True:
         if sim_velocity and one_iter_done:
             old_pos0 = pos0
@@ -94,6 +100,9 @@ try:
             dtime = now_time - old_time
         pos0 = odrv0.axis0.encoder.pos_estimate
         pos1 = odrv0.axis1.encoder.pos_estimate
+        if remote:
+            avg_server.add_location(pos0)
+            avg_server.add_location(pos1)
         if sim_velocity and one_iter_done:
             vel0 = (pos0 - old_pos0)/dtime
             vel1 = (pos1 - old_pos1)/dtime
@@ -101,10 +110,6 @@ try:
             pos1 += dtime * vel1 * .8
         axis0_set = pos1*ratio
         axis1_set = pos0/ratio
-        #i_count += 1
-        #if i_count % 1000 == 0:
-        #    syncData(axis0_set)
-        #    syncData(axis1_set)
         if -bias * axis0_set > 0: # don't allow bias to rotate past the start position
             axis0_set += bias
         if -bias * axis1_set > 0: # these account for positive or negative bias
@@ -113,6 +118,7 @@ try:
         axis1_set = max(min(axis1_set, limit), -limit)
         odrv0.axis0.controller.input_pos = axis0_set
         odrv0.axis1.controller.input_pos = axis1_set
+
         def current_func(err):
             i_out = min_current + spring_k*err
             #if err > .2:
@@ -125,4 +131,6 @@ try:
 finally:
     odrv0.axis0.requested_state = 1 # AXIS_STATE_IDLE
     odrv0.axis1.requested_state = 1 # AXIS_STATE_IDLE
+    if remote:
+        avg_server.cancel()
 
